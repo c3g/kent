@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#include <gperftools/profiler.h>
+
 #include "common.h"
 #include "bbiFile.h"
 #include "bigWig.h"
@@ -224,8 +226,8 @@ int getSequenceCount(float *pt, int size)
   Uint64Float value = { .f = 0.0 };
   value.f = pt[0];
 
-  int64_t twice = (uint64_t)value.i << 32 | value.i;
-  int64_t *ipt = (int64_t *)pt;
+  uint64_t twice = (uint64_t)value.i << 32 | value.i;
+  uint64_t *ipt = (uint64_t *)pt;
 
   for (i = 0; i < size; i++)
   {
@@ -1019,7 +1021,9 @@ int main(int argc, char *argv[])
   if (argc < minArgs)
     usage();
 
+  ProfilerStart("profile.log");
   bigWigMergePlus(argc-2, argv+1, argv[argc-1]);
+  ProfilerStop();
 
   return 0;
 }
