@@ -7,8 +7,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#include <gperftools/profiler.h>
-
 #include "common.h"
 #include "bbiFile.h"
 #include "bigWig.h"
@@ -1021,9 +1019,7 @@ int main(int argc, char *argv[])
   if (argc < minArgs)
     usage();
 
-  ProfilerStart("profile.log");
   bigWigMergePlus(argc-2, argv+1, argv[argc-1]);
-  ProfilerStop();
 
   return 0;
 }
