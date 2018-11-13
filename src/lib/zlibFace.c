@@ -4,74 +4,85 @@
  * See README in this or parent directory for licensing information. */
 
 #include "common.h"
-#include <zlib.h>
+#include "./libdeflate/libdeflate.h"
 
-static char *zlibErrorMessage(int err)
-/* Convert error code to errorMessage */
-{
-switch (err)
-    {
-    case Z_STREAM_END:
-        return "zlib stream end";
-    case Z_NEED_DICT:
-        return "zlib need dictionary";
-    case Z_ERRNO:
-        return "zlib errno";
-    case Z_STREAM_ERROR:
-        return "zlib data error";
-    case Z_DATA_ERROR:
-        return "zlib data error";
-    case Z_MEM_ERROR:
-        return "zlib mem error";
-    case Z_BUF_ERROR:
-        return "zlib buf error";
-    case Z_VERSION_ERROR:
-        return "zlib version error";
-    case Z_OK:
-        return NULL;
-    default:
-	{
-	static char msg[128];
-	safef(msg, sizeof(msg), "zlib error code %d", err);
-        return msg;
-	}
+/**
+ * Convert error code to message
+ */
+static const char *libdeflate_result_to_string(enum libdeflate_result result) {
+    switch (result) {
+        /* Decompression was successful.  */
+        case LIBDEFLATE_SUCCESS: return "success";
+
+        /* Decompressed failed because the compressed data was invalid, corrupt,
+         * or otherwise unsupported.  */
+        case LIBDEFLATE_BAD_DATA: return "corrupt or invalid data";
+
+        /* A NULL 'actual_out_nbytes_ret' was provided, but the data would have
+         * decompressed to fewer than 'out_nbytes_avail' bytes.  */
+        case LIBDEFLATE_SHORT_OUTPUT: return "data return size is shorter than expected";
+
+        /* The data would have decompressed to more than 'out_nbytes_avail'
+         * bytes.  */
+        case LIBDEFLATE_INSUFFICIENT_SPACE: return "not enough space to decompress data";
     }
+
+    return "unknown result";
 }
 
-size_t zCompress(
-	void *uncompressed, 	/* Start of area to compress. */
-	size_t uncompressedSize,  /* Size of area to compress. */
-	void *compBuf,       /* Where to put compressed bits */
-	size_t compBufSize) /* Size of compressed bits - calculate using zCompBufSize */
-/* Compress data from memory to memory.  Returns size after compression. */
-{
-uLongf compSize = compBufSize;
-int err = compress((Bytef*)compBuf, &compSize, (Bytef*)uncompressed, (uLong)uncompressedSize);
-if (err != 0)
-    errAbort("Couldn't zCompress %lld bytes: %s", 
-    	(long long)uncompressedSize, zlibErrorMessage(err));
-return compSize;
-}
-
+/**
+ * Return size of buffer needed to compress something of given size uncompressed.
+ */
 size_t zCompBufSize(size_t uncompressedSize)
-/* Return size of buffer needed to compress something of given size uncompressed. */
 {
-return 1.001*uncompressedSize + 13;
+    return 1.001 * uncompressedSize + 13;
 }
 
-size_t zUncompress(
-        void *compressed,	/* Compressed area */
-	size_t compressedSize,	/* Size after compression */
-	void *uncompBuf,	/* Where to put uncompressed bits */
-	size_t uncompBufSize)	/* Max size of uncompressed bits. */
-/* Uncompress data from memory to memory.  Returns size after decompression. */
+/**
+ * Compress data from memory to memory.  Returns size after compression.
+ */
+size_t zCompress(
+        void *uncompressed,       /* Start of area to compress. */
+        size_t uncompressedSize,  /* Size of area to compress. */
+        void *compressed,         /* Where to put compressed bits */
+        size_t compressedSize)    /* Size of compressed bits - calculate using zCompBufSize */
 {
-uLongf uncSize = uncompBufSize;
-int err = uncompress(uncompBuf,  &uncSize, compressed, compressedSize);
-if (err != 0)
-    errAbort("Couldn't zUncompress %lld bytes: %s", 
-    	(long long)compressedSize, zlibErrorMessage(err));
-return uncSize;
+    static struct libdeflate_compressor *compressor = NULL;
+
+    if (compressor == NULL)
+        compressor = libdeflate_alloc_compressor(1);
+
+    size_t size = libdeflate_zlib_compress(compressor, uncompressed,
+                                           uncompressedSize, compressed, compressedSize);
+
+    if (size == 0)
+        errAbort("Error: couldn't compress data");
+
+    return size;
+}
+
+/*
+ * Uncompress data from memory to memory.  Returns size after decompression.
+ */
+size_t zUncompress(
+        void *compressed,       /* Compressed area */
+        size_t compressedSize,  /* Size after compression */
+        void *uncompressed,        /* Where to put uncompressed bits */
+        size_t uncompressedSize)   /* Max size of uncompressed bits. */
+{
+    static struct libdeflate_decompressor *decompressor = NULL;
+
+    if (decompressor == NULL)
+        decompressor = libdeflate_alloc_decompressor();
+
+    size_t actualSize = 0;
+    enum libdeflate_result result = libdeflate_zlib_decompress(decompressor, compressed, compressedSize,
+                                                               uncompressed, uncompressedSize, &actualSize);
+
+    if (result != 0)
+        errAbort("Error: couldn't decompress data: %s", libdeflate_result_to_string(result));
+
+    return actualSize;
 }
 
 void zSelfTest(int count)
@@ -82,11 +93,11 @@ int uncSize = count*sizeof(bits32);
 int i;
 for (i=0; i<count; ++i)
     testData[i] = i;
-int compBufSize = zCompBufSize(uncSize);
-char compBuf[compBufSize];
-int compSize = zCompress(testData, uncSize, compBuf, compBufSize);
+int compressedSize = zCompBufSize(uncSize);
+char compressed[compressedSize];
+int compSize = zCompress(testData, uncSize, compressed, compressedSize);
 char uncBuf[uncSize];
-zUncompress(compBuf, compSize, uncBuf, uncSize);
+zUncompress(compressed, compSize, uncBuf, uncSize);
 if (memcmp(uncBuf, testData, uncSize) != 0)
     errAbort("zSelfTest %d failed", count);
 else

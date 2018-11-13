@@ -250,20 +250,11 @@ else
   endif
 endif
 
-ifeq (${ZLIB},)
-  ZLIB=-lz
-  ifneq ($(wildcard /opt/local/lib/libz.a),)
-    ZLIB=/opt/local/lib/libz.a
-  endif
-  ifneq ($(wildcard /usr/lib64/libz.a),)
-    ZLIB=/usr/lib64/libz.a
-  endif
-endif
-
-#global external libraries
+# global external libraries
 L += $(kentSrc)/htslib/libhts.a
+L += $(kentSrc)/lib/libdeflate/libdeflate.a
+L += ${PNGLIB} ${MLIB}
 
-L+=${PNGLIB} ${MLIB} ${ZLIB}
 HG_INC+=${PNGINCL}
 
 # pass through COREDUMP
