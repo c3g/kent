@@ -1,5 +1,7 @@
-# if CC is undefined, set it to gcc
-CC?=gcc
+
+# set CC to clang
+CC = clang
+
 # to build on sundance: CC=gcc -mcpu=v9 -m64
 ifeq (${COPT},)
     COPT=-O -g
