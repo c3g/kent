@@ -6,6 +6,8 @@
 #include "common.h"
 #include "./libdeflate/libdeflate.h"
 
+#define DEFLATE_COMPRESSION_LEVEL 6
+
 /**
  * Convert error code to message
  */
@@ -50,7 +52,7 @@ size_t zCompress(
     static struct libdeflate_compressor *compressor = NULL;
 
     if (compressor == NULL)
-        compressor = libdeflate_alloc_compressor(1);
+        compressor = libdeflate_alloc_compressor(DEFLATE_COMPRESSION_LEVEL);
 
     size_t size = libdeflate_zlib_compress(compressor, uncompressed,
                                            uncompressedSize, compressed, compressedSize);
