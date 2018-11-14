@@ -34,6 +34,7 @@
  *  1.0.0 - copied from bigWigMerge
  *  1.0.1 - fix help text
  *  1.1.0 - performance improvements
+ *  1.2.0 - performance improvements, simd
  */
 
 /* A range of bigWig file */
