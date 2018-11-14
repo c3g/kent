@@ -77,7 +77,7 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 1.1.0 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 1.2.0 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
