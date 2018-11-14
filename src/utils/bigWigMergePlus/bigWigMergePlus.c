@@ -216,9 +216,7 @@ int getMaxChromSize(struct bbiChromInfo *chromList)
  */
 int getSequenceCount(float *pt, int size)
 {
-  /*
-   * We compare values two-by-two to speed up the thing.
-   */
+  /* We compare values two-by-two to speed up the thing. */
 
   int i;
   Uint64Float value = { .f = 0.0 };
@@ -239,7 +237,7 @@ int getSequenceCount(float *pt, int size)
     return sameCount + 1;
 
   return sameCount;
-} 
+}
 
 /**
  * Writes a single section to disk
@@ -282,14 +280,8 @@ void writeSection(
   dyStringWriteOne(stream, reserved8);    // reserved
   dyStringWriteOne(stream, itemCount);    // itemCount
 
-  /* Output each item in section to stream. */
-  for (int i = 0; i < *itemIx; i++)
-  {
-    SectionItem *item = &items[i];
-    dyStringWriteOne(stream, item->start);
-    dyStringWriteOne(stream, item->end);
-    dyStringWriteOne(stream, item->val);
-  }
+  /* Output all items in section to stream. */
+  dyStringAppendN(stream, (char *)items, *itemIx * sizeof(items[0]));
 
   /* Save stream to file, compressing if need be. */
   if (stream->stringSize > maxSectionSize)
