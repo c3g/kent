@@ -7,6 +7,12 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+#define USE_SIMD 1
+
+#if USE_SIMD
+#include <emmintrin.h>
+#endif
+
 #include "common.h"
 #include "bbiFile.h"
 #include "bigWig.h"
@@ -898,12 +904,31 @@ void mergeChroms(
 
       for (iv = ivList; iv != NULL; iv = iv->next)
       {
-        for (int i = iv->start; i < iv->end; i++)
+        unsigned int i = iv->start;
+
+        float val = clNormalize ? iv->val * factors[f] : iv->val;
+#if USE_SIMD
+        __m128 values = _mm_load_ps1(&val);
+
+        for (; i + 3 < iv->end; i += 4)
         {
-          if (clNormalize)
-            mergeBuf[i] += iv->val * factors[f];
-          else
-            mergeBuf[i] += iv->val;
+          float buffer[4] = { mergeBuf[i + 0], mergeBuf[i + 1], mergeBuf[i + 2], mergeBuf[i + 3] };
+
+          __m128 mergeValues = _mm_load_ps(buffer);
+          __m128 results = _mm_add_ps(mergeValues, values);
+
+          _mm_store_ps(buffer, results);
+
+          mergeBuf[i + 0] = buffer[0];
+          mergeBuf[i + 1] = buffer[1];
+          mergeBuf[i + 2] = buffer[2];
+          mergeBuf[i + 3] = buffer[3]; 
+        }
+#endif
+
+        for (; i < iv->end; i++)
+        {
+          mergeBuf[i] += val;
         }
       }
 
