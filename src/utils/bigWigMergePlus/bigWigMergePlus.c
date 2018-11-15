@@ -35,6 +35,7 @@
  *  1.0.1 - fix help text
  *  1.1.0 - performance improvements
  *  1.2.0 - performance improvements, simd
+ *  1.3.0 - add -compress option
  */
 
 /* A range of bigWig file */
@@ -61,23 +62,22 @@ typedef union {
 } Uint64Float;
 
 /* for writing */
-static uint8_t reserved8 = 0;
+static uint8_t  reserved8 = 0;
 static uint16_t reserved16 = 0;
 static uint32_t reserved32 = 0;
 static uint64_t reserved64 = 0;
 
 
 /* for itemsToBigWig */
-static int blockSize = 256;
-static int itemsPerSlot = 1024;
-static boolean doCompress = FALSE;
+static const int blockSize = 256;
+static const int itemsPerSlot = 1024;
 
 
 void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 1.2.0 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 1.3.0 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
@@ -86,19 +86,22 @@ void usage()
       "   -range=chr1:0-100   - Range to merge (default: none)\n"
       "   -threshold=0.N      - Don't output values at or below this threshold. (default: 0.0)\n"
       "   -normalize          - Use values weighted according to each file maximum (default: false)\n"
+      "   -compress           - Compress output bigwig (default: false)\n"
       );
   exit(0);
 }
 
-float clThreshold = 0.0;
-boolean clNormalize = FALSE;
-Range *clRange = NULL;
+static Range *clRange = NULL;
+static float clThreshold = 0.0;
+static boolean clNormalize = FALSE;
+static boolean clCompress = FALSE;
 
 
 static struct optionSpec options[] = {
   {"range", OPTION_STRING},
   {"threshold", OPTION_DOUBLE},
   {"normalize", OPTION_BOOLEAN},
+  {"compress", OPTION_BOOLEAN},
   {NULL, 0},
 };
 
@@ -294,7 +297,7 @@ void writeSection(
   if (stream->stringSize > maxSectionSize)
     maxSectionSize = stream->stringSize;
 
-  if (doCompress)
+  if (clCompress)
   {
     size_t maxCompSize = zCompBufSize(stream->stringSize);
     char compBuf[maxCompSize];
@@ -465,7 +468,7 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
   writeOne(f, initialReductionCount);
   boolean firstRow = TRUE;
 
-  struct bbiSumOutStream *stream = bbiSumOutStreamOpen(itemsPerSlot, f, doCompress);
+  struct bbiSumOutStream *stream = bbiSumOutStreamOpen(itemsPerSlot, f, clCompress);
 
   int c = 0;
   for (usage = usageList; usage != NULL; usage = usage->next, c++)
@@ -629,7 +632,6 @@ int writeZoomLevels(
     int blockSize,      /* Size of index block */
     int itemsPerSlot,   /* Number of data points bundled at lowest level. */
     int fieldCount,     /* Number of fields in bed (4 for bedGraph) */
-    boolean doCompress,     /* Do we compress. Answer really should be yes! */
     bits64 dataSize,        /* Size of data on disk (after compression if any). */
     int resTryCount, int resScales[], int resSizes[],   /* How much to zoom at each level */
     bits32 zoomAmounts[bbiMaxZoomLevels],      /* Fills in amount zoomed at each level. */
@@ -649,7 +651,7 @@ int writeZoomLevels(
   {
     bits64 reducedSize = resSizes[resTry] * sizeof(struct bbiSummaryOnDisk);
 
-    if (doCompress)
+    if (clCompress)
       reducedSize /= 2;   // Estimate!
 
     if (reducedSize <= maxReducedSize)
@@ -707,7 +709,7 @@ int writeZoomLevels(
     zoomCount = rezoomCount;
     zoomDataOffsets[zoomLevels] = ftell(f);
     zoomIndexOffsets[zoomLevels] = bbiWriteSummaryAndIndex(rezoomedList,
-        blockSize, itemsPerSlot, doCompress, f);
+        blockSize, itemsPerSlot, clCompress, f);
     zoomAmounts[zoomLevels] = reduction;
     zoomLevels++;
     reduction *= zoomIncrement;
@@ -788,13 +790,13 @@ void itemsToBigWig(
   /* Call monster zoom maker library function that bedToBigBed also uses. */
   int zoomLevels = writeZoomLevels(usageList, chromItems, f, blockSize, itemsPerSlot,
       4,
-      doCompress, indexOffset - dataOffset,
+      indexOffset - dataOffset,
       resTryCount, resScales, resSizes,
       zoomAmounts, zoomDataOffsets, zoomIndexOffsets, &totalSum);
 
 
   /* Figure out buffer size needed for uncompression if need be. */
-  if (doCompress)
+  if (clCompress)
   {
     int maxZoomUncompSize = itemsPerSlot * sizeof(struct bbiSummaryOnDisk);
     uncompressBufSize = max(maxSectionSize, maxZoomUncompSize);
@@ -1023,6 +1025,7 @@ int main(int argc, char *argv[])
   optionInit(&argc, argv, options);
   clThreshold = optionDouble("threshold", clThreshold);
   clNormalize = optionExists("normalize");
+  clCompress = optionExists("compress");
   char *range = optionVal("range", NULL);
 
   if (range != NULL) {
