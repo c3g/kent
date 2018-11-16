@@ -1035,6 +1035,16 @@ int main(int argc, char *argv[])
       errAbort("Error: Invalid value for argument -range (format: chrom:start-end)");
   }
 
+  verbose(2, "Options:\n");
+  verbose(2, "\t-threshold: %s\n", clThreshold ? "true" : "false");
+  verbose(2, "\t-normalize: %s\n", clNormalize ? "true" : "false");
+  verbose(2, "\t-compress:  %s\n", clCompress ? "true" : "false");
+  if (clRange != NULL)
+    verbose(2, "\t-range: %s:%i-%i\n", clRange->chrom, clRange->start, clRange->end);
+  else
+    verbose(2, "\t-range: (null)\n");
+  verbose(2, "\n\n");
+
   int minArgs = 4;
 
   if (argc < minArgs)
