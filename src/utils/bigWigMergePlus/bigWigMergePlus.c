@@ -30,6 +30,9 @@
 #include "sqlNum.h"
 #include "zlibFace.h"
 
+#define LIKELY(expr)   __builtin_expect ((expr), 1)
+#define UNLIKELY(expr) __builtin_expect ((expr), 0)
+
 /* version history:
  *  1.0.0 - copied from bigWigMerge
  *  1.0.1 - fix help text
@@ -412,16 +415,20 @@ void writeSections(
       itemIx += 1;
     }
 
-    writeSection(
-      usage,
-      bounds,
-      items,
-      &sectionIx,
-      &itemIx,
-      sectionCount,
-      maxSectionSize,
-      stream,
-      f);
+    /* Output section if needed */
+    if (itemIx > 0)
+    {
+      writeSection(
+        usage,
+        bounds,
+        items,
+        &sectionIx,
+        &itemIx,
+        sectionCount,
+        maxSectionSize,
+        stream,
+        f);
+    }
 
     lastB = NULL;
     for (resTry = 0; resTry < resTryCount; ++resTry)
@@ -485,7 +492,7 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
 
       /* Update total summary stuff. */
       bits32 size = end - start;
-      if (firstRow)
+      if (UNLIKELY(firstRow))
       {
         totalSum->validCount = size;
         totalSum->minVal = totalSum->maxVal = val;
@@ -879,11 +886,10 @@ void mergeChroms(
     usage->size = chrom->size;
     slAddHead(usageList, usage);
 
-    /* If there is a range and it's not this chrom, just fill a single zero item */
+    /* If there is a range and it's not this chrom, just skip this */
     if (clRange != NULL && differentString(clRange->chrom, chrom->name)) {
-      usage->itemCount = 1;
-      chromItems[c] = needMem(sizeof(SectionItem));
-      chromItems[c][0] = (SectionItem) { 0, chrom->size, 0.0 };
+      usage->itemCount = 0;
+      chromItems[c] = NULL;
       continue;
     }
 
@@ -1012,7 +1018,7 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
 
   mergeChroms(inFiles, factors, chromList, maxChromSize, &usageList, chromItems);
 
-  verbose(1, "\n");
+  verbose(1, "\nWriting output...\n");
 
   itemsToBigWig(usageList, chromItems, outFile);
 }
