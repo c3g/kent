@@ -59,6 +59,14 @@ struct SectionItem
 };
 typedef struct SectionItem SectionItem;
 
+/* A numerical range */
+struct NumericalRange {
+  int start;
+  int end;
+};
+typedef struct NumericalRange NumericalRange;
+
+/* int32_t & float union, for conversion */
 typedef union {
   int32_t i;
   float f;
@@ -86,21 +94,24 @@ void usage()
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
       "\n"
       "Options:\n"
-      "   -range=chr1:0-100   - Range to merge (default: none)\n"
-      "   -threshold=0.N      - Don't output values at or below this threshold. (default: 0.0)\n"
-      "   -normalize          - Use values weighted according to each file maximum (default: false)\n"
-      "   -compress           - Compress output bigwig (default: false)\n"
+      "   -position=chr1:0-100  - Range to merge (default: none)\n"
+      "   -range=0-1000         - Range of output values (default: none)\n"
+      "   -threshold=0.N        - Don't output values at or below this threshold. (default: 0.0)\n"
+      "   -normalize            - Use values weighted according to each file maximum (default: false)\n"
+      "   -compress             - Compress output bigwig (default: false)\n"
       );
   exit(0);
 }
 
-static Range *clRange = NULL;
+static Range *clPosition = NULL;
 static float clThreshold = 0.0;
 static boolean clNormalize = FALSE;
 static boolean clCompress = FALSE;
+static NumericalRange *clRange = NULL;
 
 
 static struct optionSpec options[] = {
+  {"position", OPTION_STRING},
   {"range", OPTION_STRING},
   {"threshold", OPTION_DOUBLE},
   {"normalize", OPTION_BOOLEAN},
@@ -114,7 +125,7 @@ static struct optionSpec options[] = {
  * (chr6)
  * (chr1:0-10000)
  */
-Range *parseRange(char *input)
+Range *parseChromRange(char *input)
 {
   char *s;
   char *e;
@@ -147,6 +158,28 @@ Range *parseRange(char *input)
   range->isFullChrom = isFullChrom;
   range->start = start;
   range->end = end;
+  return range;
+}
+
+/**
+ * Parses a numerical range
+ * (0-1000)
+ */
+NumericalRange *parseNumericalRange(char *input)
+{
+  char *endString;
+
+  endString = strchr(input, '-');
+  if (endString == NULL)
+      return NULL;
+
+  *endString++ = 0;
+  if (!isdigit(input[0]) || !isdigit(endString[0]))
+      return NULL;
+
+  NumericalRange *range = malloc(sizeof(NumericalRange));
+  range->start = atoi(input);
+  range->end = atoi(endString);
   return range;
 }
 
@@ -864,8 +897,10 @@ void itemsToBigWig(
  * Merge chroms
  */
 void mergeChroms(
+    int inCount,
     struct bbiFile *inFiles,
     float *factors,
+    struct bbiSummaryElement *summaries,
     struct bbiChromInfo *chromList,
     int maxChromSize,
     struct bbiChromUsage **usageList,
@@ -887,7 +922,7 @@ void mergeChroms(
     slAddHead(usageList, usage);
 
     /* If there is a range and it's not this chrom, just skip this */
-    if (clRange != NULL && differentString(clRange->chrom, chrom->name)) {
+    if (clPosition != NULL && differentString(clPosition->chrom, chrom->name)) {
       usage->itemCount = 0;
       chromItems[c] = NULL;
       continue;
@@ -905,8 +940,10 @@ void mergeChroms(
     int f = 0;
     for (inFile = inFiles; inFile != NULL; inFile = inFile->next, f++)
     {
-      uint32_t start = clRange == NULL ? 0 : clRange->start;
-      uint32_t end   = clRange == NULL || clRange->isFullChrom ? chrom->size : clRange->end;
+      struct bbiSummaryElement summary = summaries[f];
+
+      uint32_t start = clPosition == NULL ? 0 : clPosition->start;
+      uint32_t end   = clPosition == NULL || clPosition->isFullChrom ? chrom->size : clPosition->end;
 
       struct bbiInterval *ivList = bigWigIntervalQuery(inFile, chrom->name, start, end, lm);
       struct bbiInterval *iv;
@@ -916,6 +953,13 @@ void mergeChroms(
         unsigned int i = iv->start;
 
         float val = clNormalize ? iv->val * factors[f] : iv->val;
+
+        if (clNormalize)
+          val *= factors[f];
+
+        if (clRange)
+          val = ((((val - summary.minVal) / (summary.maxVal - summary.minVal)) * (clRange->end - clRange->start)) + clRange->start) / (double)inCount;
+
 #if USE_SIMD
         __m128 values = _mm_load_ps1(&val);
 
@@ -940,9 +984,6 @@ void mergeChroms(
           mergeBuf[i] += val;
         }
       }
-
-      /* slCount is a performance hit for large lists */
-      /* verbose(2, "Got %d intervals in %s\n", slCount(ivList), inFile->fileName); */
     }
 
     /* Store each range of contiguous values as a section item */
@@ -972,6 +1013,7 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
   /* Factors for normalization */
   float factors[inCount];
   float totalMaximum = 0.0;
+  struct bbiSummaryElement summaries[inCount];
 
   /* Make a list of open bigWig files. */
   struct bbiFile *inFile;
@@ -982,11 +1024,11 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
     inFile = bigWigFileOpen(inFilenames[i]);
     slAddTail(&inFiles, inFile);
 
+    summaries[i] = bbiTotalSummary(inFile);
     if (clNormalize) {
-      struct bbiSummaryElement sum = bbiTotalSummary(inFile);
-      factors[i] = sum.maxVal;
-      totalMaximum += sum.maxVal;
+      factors[i] = summaries[i].maxVal;
     }
+    totalMaximum += summaries[i].maxVal;
   }
 
   if (clNormalize) {
@@ -1005,18 +1047,17 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
       slCount(chromList), slCount(inFiles), maxChromSize);
 
   /* Assert provided chrom exists if applicable */
-  if (clRange != NULL) {
-    if (findChrom(chromList, clRange->chrom) == NULL)
-      errAbort("Error: Chromosome parsed from -position param didn't match "
-          "any chromosome in files: %s",
-          clRange->chrom);
+  if (clPosition != NULL && findChrom(chromList, clPosition->chrom) == NULL) {
+    errAbort("Error: Chromosome parsed from -position param didn't match "
+        "any chromosome in files: %s",
+        clPosition->chrom);
   }
 
   /* Informations to write will be stored here */
   struct bbiChromUsage *usageList = NULL;
   SectionItem **chromItems = needMem(chromCount * sizeof(SectionItem *));
 
-  mergeChroms(inFiles, factors, chromList, maxChromSize, &usageList, chromItems);
+  mergeChroms(inCount, inFiles, factors, summaries, chromList, maxChromSize, &usageList, chromItems);
 
   verbose(1, "\nWriting output...\n");
 
@@ -1032,21 +1073,33 @@ int main(int argc, char *argv[])
   clThreshold = optionDouble("threshold", clThreshold);
   clNormalize = optionExists("normalize");
   clCompress = optionExists("compress");
+  char *position = optionVal("position", NULL);
   char *range = optionVal("range", NULL);
 
+  if (position != NULL) {
+    clPosition = parseChromRange(position);
+
+    if (clPosition == NULL)
+      errAbort("Error: Invalid value for argument -position (format: chrom:start-end)");
+  }
+
   if (range != NULL) {
-    clRange = parseRange(range);
+    clRange = parseNumericalRange(range);
 
     if (clRange == NULL)
-      errAbort("Error: Invalid value for argument -range (format: chrom:start-end)");
+      errAbort("Error: Invalid value for argument -range (format: start-end)");
   }
 
   verbose(2, "Options:\n");
   verbose(2, "\t-threshold: %s\n", clThreshold ? "true" : "false");
   verbose(2, "\t-normalize: %s\n", clNormalize ? "true" : "false");
   verbose(2, "\t-compress:  %s\n", clCompress ? "true" : "false");
+  if (clPosition != NULL)
+    verbose(2, "\t-position: %s:%i-%i\n", clPosition->chrom, clPosition->start, clPosition->end);
+  else
+    verbose(2, "\t-position: (null)\n");
   if (clRange != NULL)
-    verbose(2, "\t-range: %s:%i-%i\n", clRange->chrom, clRange->start, clRange->end);
+    verbose(2, "\t-range: %i-%i\n", clRange->start, clRange->end);
   else
     verbose(2, "\t-range: (null)\n");
   verbose(2, "\n\n");
