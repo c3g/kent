@@ -40,6 +40,7 @@
  *  1.2.0 - performance improvements, simd
  *  1.3.0 - add -compress option
  *  2.0.0 - add -range option
+ *  2.1.0 - allow merging single file
  */
 
 /* A range of bigWig file */
@@ -89,7 +90,7 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 2.0.0 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 2.1.0 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
@@ -1105,7 +1106,7 @@ int main(int argc, char *argv[])
     verbose(2, "\t-range: (null)\n");
   verbose(2, "\n\n");
 
-  int minArgs = 4;
+  int minArgs = 3;
 
   if (argc < minArgs)
     usage();
