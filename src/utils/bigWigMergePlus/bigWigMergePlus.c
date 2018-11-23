@@ -37,6 +37,7 @@
  *  2.0.0 - add -range option
  *  2.1.0 - allow merging single file
  *  2.2.0 - add -deviation option
+ *  2.2.1 - fix total summary
  */
 
 /* A range of bigWig file */
@@ -86,7 +87,7 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 2.2.0 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 2.2.1 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
@@ -526,12 +527,7 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
       if (UNLIKELY(firstRow))
       {
         totalSum->validCount = size;
-        if (clRange == NULL) {
-          totalSum->minVal = totalSum->maxVal = val;
-        } else {
-          totalSum->minVal = clRange->start;
-          totalSum->maxVal = clRange->end;
-        }
+        totalSum->minVal = totalSum->maxVal = val;
         totalSum->sumData = val*size;
         totalSum->sumSquares = val*val*size;
         firstRow = FALSE;
@@ -539,10 +535,8 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
       else
       {
         totalSum->validCount += size;
-        if (clRange == NULL) {
-          if (val < totalSum->minVal) totalSum->minVal = val;
-          if (val > totalSum->maxVal) totalSum->maxVal = val;
-        }
+        if (val < totalSum->minVal) totalSum->minVal = val;
+        if (val > totalSum->maxVal) totalSum->maxVal = val;
         totalSum->sumData += val*size;
         totalSum->sumSquares += val*val*size;
       }
