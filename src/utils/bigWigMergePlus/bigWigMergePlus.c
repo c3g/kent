@@ -6,12 +6,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-
-#define USE_SIMD 1
-
-#if USE_SIMD
-#include <emmintrin.h>
-#endif
+#include <math.h>
 
 #include "common.h"
 #include "bbiFile.h"
@@ -41,6 +36,7 @@
  *  1.3.0 - add -compress option
  *  2.0.0 - add -range option
  *  2.1.0 - allow merging single file
+ *  2.2.0 - add -deviation option
  */
 
 /* A range of bigWig file */
@@ -90,17 +86,18 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 2.1.0 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 2.2.0 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
       "\n"
       "Options:\n"
-      "   -position=chr1:0-100  - Range to merge (default: none)\n"
-      "   -range=0-1000         - Range of output values (default: none)\n"
-      "   -threshold=0.N        - Don't output values at or below this threshold. (default: 0.0)\n"
-      "   -normalize            - Use values weighted according to each file maximum (default: false)\n"
-      "   -compress             - Compress output bigwig (default: false)\n"
+      "   -position=chr1:0-100   - Range to merge (default: none)\n"
+      "   -range=0-1000          - Range of output values (default: none)\n"
+      "   -threshold=0.N         - Don't output values at or below this threshold. (default: 0.0)\n"
+      "   -normalize             - Use values weighted according to each file maximum (default: false)\n"
+      "   -compress              - Compress output bigwig (default: false)\n"
+      "   -deviation=std-dev.bw  - Path to output standard deviation file (default: none)\n"
       );
   exit(0);
 }
@@ -110,6 +107,7 @@ static float clThreshold = 0.0;
 static boolean clNormalize = FALSE;
 static boolean clCompress = FALSE;
 static NumericalRange *clRange = NULL;
+static char *clDeviation = NULL;
 
 
 static struct optionSpec options[] = {
@@ -118,14 +116,13 @@ static struct optionSpec options[] = {
   {"threshold", OPTION_DOUBLE},
   {"normalize", OPTION_BOOLEAN},
   {"compress", OPTION_BOOLEAN},
+  {"deviation", OPTION_STRING},
   {NULL, 0},
 };
 
 
 /**
- * Parses a chrom position range
- * (chr6)
- * (chr1:0-10000)
+ * Parses a chrom position range in format (chr6) or (chr1:0-10000)
  */
 Range *parseChromRange(char *input)
 {
@@ -164,8 +161,7 @@ Range *parseChromRange(char *input)
 }
 
 /**
- * Parses a numerical range
- * (0-1000)
+ * Parses a numerical range in format (0-1000)
  */
 NumericalRange *parseNumericalRange(char *input)
 {
@@ -530,7 +526,12 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
       if (UNLIKELY(firstRow))
       {
         totalSum->validCount = size;
-        totalSum->minVal = totalSum->maxVal = val;
+        if (clRange == NULL) {
+          totalSum->minVal = totalSum->maxVal = val;
+        } else {
+          totalSum->minVal = clRange->start;
+          totalSum->maxVal = clRange->end;
+        }
         totalSum->sumData = val*size;
         totalSum->sumSquares = val*val*size;
         firstRow = FALSE;
@@ -538,8 +539,10 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
       else
       {
         totalSum->validCount += size;
-        if (val < totalSum->minVal) totalSum->minVal = val;
-        if (val > totalSum->maxVal) totalSum->maxVal = val;
+        if (clRange == NULL) {
+          if (val < totalSum->minVal) totalSum->minVal = val;
+          if (val > totalSum->maxVal) totalSum->maxVal = val;
+        }
         totalSum->sumData += val*size;
         totalSum->sumSquares += val*val*size;
       }
@@ -895,117 +898,6 @@ void itemsToBigWig(
   carefulClose(&f);
 }
 
-/**
- * Merge chroms
- */
-void mergeChroms(
-    int inCount,
-    struct bbiFile *inFiles,
-    float *factors,
-    struct bbiSummaryElement *summaries,
-    struct bbiChromInfo *chromList,
-    int maxChromSize,
-    struct bbiChromUsage **usageList,
-    SectionItem **chromItems) {
-
-  struct bbiFile *inFile;
-  struct bbiChromInfo *chrom;
-
-  /* Buffer to merge values */
-  float *mergeBuf = needHugeMem(maxChromSize * sizeof(float));
-
-  int c = 0;
-  for (chrom = chromList; chrom != NULL; chrom = chrom->next, c++)
-  {
-    struct bbiChromUsage *usage = needMem(sizeof(struct bbiChromUsage));
-    usage->id = chrom->id;
-    usage->name = chrom->name;
-    usage->size = chrom->size;
-    slAddHead(usageList, usage);
-
-    /* If there is a range and it's not this chrom, just skip this */
-    if (clPosition != NULL && differentString(clPosition->chrom, chrom->name)) {
-      usage->itemCount = 0;
-      chromItems[c] = NULL;
-      continue;
-    }
-
-    struct lm *lm = lmInit(0);
-    chromItems[c] = needHugeMem(chrom->size * sizeof(SectionItem));
-
-    /* Reset mergeBuf memory to 0 */
-    memset(mergeBuf, 0, chrom->size * sizeof(float));
-
-    verbose(1, "Processing \x1b[1;93m%s\x1b[0m (%d bases)\n", chrom->name, chrom->size);
-
-    /* Loop through each input file grabbing data and merging it in. */
-    int f = 0;
-    for (inFile = inFiles; inFile != NULL; inFile = inFile->next, f++)
-    {
-      struct bbiSummaryElement summary = summaries[f];
-
-      uint32_t start = clPosition == NULL ? 0 : clPosition->start;
-      uint32_t end   = clPosition == NULL || clPosition->isFullChrom ? chrom->size : clPosition->end;
-
-      struct bbiInterval *ivList = bigWigIntervalQuery(inFile, chrom->name, start, end, lm);
-      struct bbiInterval *iv;
-
-      for (iv = ivList; iv != NULL; iv = iv->next)
-      {
-        unsigned int i = iv->start;
-
-        float val = clNormalize ? iv->val * factors[f] : iv->val;
-
-        if (clNormalize)
-          val *= factors[f];
-
-        if (clRange)
-          val = ((((val - summary.minVal) / (summary.maxVal - summary.minVal)) * (clRange->end - clRange->start)) + clRange->start) / (double)inCount;
-
-#if USE_SIMD
-        __m128 values = _mm_load_ps1(&val);
-
-        for (; i + 3 < iv->end; i += 4)
-        {
-          float buffer[4] = { mergeBuf[i + 0], mergeBuf[i + 1], mergeBuf[i + 2], mergeBuf[i + 3] };
-
-          __m128 mergeValues = _mm_load_ps(buffer);
-          __m128 results = _mm_add_ps(mergeValues, values);
-
-          _mm_store_ps(buffer, results);
-
-          mergeBuf[i + 0] = buffer[0];
-          mergeBuf[i + 1] = buffer[1];
-          mergeBuf[i + 2] = buffer[2];
-          mergeBuf[i + 3] = buffer[3]; 
-        }
-#endif
-
-        for (; i < iv->end; i++)
-        {
-          mergeBuf[i] += val;
-        }
-      }
-    }
-
-    /* Store each range of contiguous values as a section item */
-    int index = 0;
-    int sameCount;
-    for (int i = 0; i < chrom->size; i += sameCount)
-    {
-      sameCount = getSequenceCount(mergeBuf + i, chrom->size - i);
-      float val = mergeBuf[i];
-      if (val > clThreshold) {
-        SectionItem item = { i, i + sameCount, val };
-        chromItems[c][index++] = item;
-      }
-    }
-    usage->itemCount = index;
-
-    lmCleanup(&lm);
-  }
-  slReverse(usageList);
-}
 
 /**
  * Merge together multiple bigWigs into a single one
@@ -1040,8 +932,9 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
     }
   }
 
+  struct bbiChromInfo *chrom;
   struct bbiChromInfo *chromList = getAllChroms(inFiles);
-  int maxChromSize = getMaxChromSize(chromList);
+  int maxChromSize = clPosition ? findChrom(chromList, clPosition->chrom)->size : getMaxChromSize(chromList);
   int chromCount = slCount(chromList);
 
 
@@ -1055,17 +948,189 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
         clPosition->chrom);
   }
 
+  /*
+   * In the next part of the function, we create merge the files and create
+   * actual output value.
+   */
+
   /* Informations to write will be stored here */
   struct bbiChromUsage *usageList = NULL;
+  struct bbiChromUsage *deviationList = NULL;
   SectionItem **chromItems = needMem(chromCount * sizeof(SectionItem *));
+  SectionItem **deviationItems = clDeviation ? needMem(chromCount * sizeof(SectionItem *)) : NULL;
 
-  mergeChroms(inCount, inFiles, factors, summaries, chromList, maxChromSize, &usageList, chromItems);
+  /* Buffer to merge values */
+  float *mergeBuf = needHugeMem(maxChromSize * sizeof(float));
+  /* Buffers for standard deviation data, if applicable */
+  float *varianceBuf = clDeviation ? needHugeMem(maxChromSize * sizeof(float)) : NULL;
+  float *meanBuf = clDeviation ? needHugeMem(maxChromSize * sizeof(float)) : NULL;
+  float *countBuf = clDeviation ? needHugeMem(maxChromSize * sizeof(float)) : NULL;
+
+
+  int c = 0;
+  for (chrom = chromList; chrom != NULL; chrom = chrom->next, c++)
+  {
+    struct bbiChromUsage *usage = needMem(sizeof(struct bbiChromUsage));
+    usage->id = chrom->id;
+    usage->name = chrom->name;
+    usage->size = chrom->size;
+    slAddHead(&usageList, usage);
+
+    struct bbiChromUsage *deviation = NULL;
+    if (clDeviation) {
+      deviation = needMem(sizeof(struct bbiChromUsage));
+      deviation->id = chrom->id;
+      deviation->name = chrom->name;
+      deviation->size = chrom->size;
+      slAddHead(&deviationList, deviation);
+    }
+
+    /* If there is a range and it's not this chrom, just skip this */
+    if (clPosition != NULL && differentString(clPosition->chrom, chrom->name)) {
+      usage->itemCount = 0;
+      chromItems[c] = NULL;
+
+      if (clDeviation) {
+        deviation->itemCount = 0;
+        deviationItems[c] = NULL;
+      }
+
+      continue;
+    }
+
+    int size = clPosition ? (clPosition->end - clPosition->start) : chrom->size;
+
+    /* Allocate memory and reset buffers to 0 */
+    struct lm *lm = lmInit(0);
+    chromItems[c] = needHugeMem(size * sizeof(SectionItem));
+
+    memset(mergeBuf, 0, chrom->size * sizeof(float));
+
+    if (clDeviation) {
+      deviationItems[c] = needHugeMem(size * sizeof(SectionItem));
+
+      memset(varianceBuf, 0, chrom->size * sizeof(float));
+      memset(meanBuf, 0, chrom->size * sizeof(float));
+      memset(countBuf, 0, chrom->size * sizeof(float));
+    }
+
+    verbose(1, "Processing \x1b[1;93m%s\x1b[0m (%d bases)\n", chrom->name, chrom->size);
+
+    /* Loop through each input file grabbing data and merging it in. */
+    int f = 0;
+    for (inFile = inFiles; inFile != NULL; inFile = inFile->next, f++)
+    {
+      struct bbiSummaryElement summary = summaries[f];
+
+      uint32_t start = clPosition == NULL ? 0 : clPosition->start;
+      uint32_t end   = clPosition == NULL || clPosition->isFullChrom ? chrom->size : clPosition->end;
+
+      struct bbiInterval *ivList = bigWigIntervalQuery(inFile, chrom->name, start, end, lm);
+      struct bbiInterval *iv;
+
+      for (iv = ivList; iv != NULL; iv = iv->next)
+      {
+        unsigned int i = iv->start;
+
+        float val = iv->val;
+
+        if (clNormalize)
+          val *= factors[f];
+
+        if (clRange)
+          val = ((((val - summary.minVal) / (summary.maxVal - summary.minVal)) * (clRange->end - clRange->start)) + clRange->start) / (double)inCount;
+
+        for (; i < iv->end; i++)
+        {
+          if (clDeviation) {
+            /*
+             * Standard deviation: s² = ( Σ (x - x̄)² ) / (n - 1)
+             */
+
+            countBuf[i] += 1;
+            int n = countBuf[i];
+
+            if (n == 1) {
+              // skip
+            }
+            else if (n == 2) {
+              float mean = (mergeBuf[i] + val) / 2.0f;
+              varianceBuf[i] = powf(val - mean, 2) + powf(mergeBuf[i] - mean, 2);
+              meanBuf[i] = mean;
+            }
+            else if (n > 2) {
+              float oldMean = meanBuf[i];
+              float newMean = ((oldMean * (n - 1)) + val) / n;
+
+              float oldVariance = varianceBuf[i];
+              float newVariance = ((n - 2) * oldVariance + (val - newMean) * (val - oldMean)) / (n - 1);
+
+              varianceBuf[i] = newVariance;
+              meanBuf[i] = newMean;
+            }
+          }
+
+          mergeBuf[i] += val;
+        }
+      }
+    }
+
+    /* Store each range of contiguous values as a section item */
+    int index = 0;
+    int sameCount;
+    for (int i = 0; i < chrom->size; i += sameCount)
+    {
+      sameCount = getSequenceCount(mergeBuf + i, chrom->size - i);
+      float val = mergeBuf[i];
+      if (val > clThreshold) {
+        SectionItem item = { i, i + sameCount, val };
+        chromItems[c][index++] = item;
+      }
+    }
+    usage->itemCount = index;
+
+    /* Store section item for deviation */
+    if (clDeviation) {
+      int index = 0;
+      int sameCount;
+      for (int i = 0; i < chrom->size; i += sameCount)
+      {
+        sameCount = getSequenceCount(mergeBuf + i, chrom->size - i);
+        float val = sqrtf(varianceBuf[i]);
+        if (val != 0.0f) {
+          deviationItems[c][index++] = (SectionItem) { i, i + sameCount, val };
+        }
+      }
+      deviation->itemCount = index;
+    }
+
+    lmCleanup(&lm);
+  }
+
+  slReverse(&usageList);
+
+  if (clDeviation)
+    slReverse(&deviationList);
+
+
+  /*
+   * Finally, write the output data to file
+   */
 
   verbose(1, "\nWriting output...\n");
 
   itemsToBigWig(usageList, chromItems, outFile);
-}
 
+  verbose(1, "\nWriting deviation...\n");
+
+  if (clDeviation) {
+    /* for (int i = 0; i < deviationList->itemCount; i ++) {
+     *   SectionItem item = deviationItems[0][i];
+     *   printSectionItem(&item);
+     * } */
+    itemsToBigWig(deviationList, deviationItems, clDeviation);
+  }
+}
 
 
 int main(int argc, char *argv[])
@@ -1077,6 +1142,7 @@ int main(int argc, char *argv[])
   clCompress = optionExists("compress");
   char *position = optionVal("position", NULL);
   char *range = optionVal("range", NULL);
+  clDeviation = optionVal("deviation", NULL);
 
   if (position != NULL) {
     clPosition = parseChromRange(position);
