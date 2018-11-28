@@ -49,6 +49,7 @@ def main():
     t3 = pyBigWig.open(inputFiles[2])
 
     dev = pyBigWig.open(deviationFile)
+    out = pyBigWig.open(outputFile)
 
     s1 = t1.header()
     s2 = t2.header()
@@ -67,9 +68,12 @@ def main():
         v2 = get_value_transformed(t2, s2, i)
         v3 = get_value_transformed(t3, s3, i)
         vdev = get_value_at(dev, i)
+        vout = get_value_at(out, i)
 
         if math.isnan(vdev):
             vdev = 0
+        if math.isnan(vout):
+            vout = 0
 
         values = []
 
@@ -93,10 +97,17 @@ def main():
             sum(map(lambda x: math.pow(x - mean, 2), values)) / (n - 1)
         )
 
+        if not isclose(sum(values), vout, 1e-04):
+            print 'Error: merge value mismatch'
+            print {'i': i, 'v1': v1, 'v2': v2, 'v3': v3}
+            print 'actual:   %.16f' % vout
+            print 'expected: %.16f' % sum(values)
+            sys.exit(1)
+
         #  print {'i': i, 'v1': v1, 'v2': v2, 'v3': v3, 'vdev': vdev, 'stdDeviation': stdDeviation}
         #  print '%d: %f %f' % (i, round_to_n(vdev, 3), round_to_n(stdDeviation, 3))
-        if not isclose(vdev, stdDeviation):
-            print 'Error: value mismatch'
+        if not isclose(vdev, stdDeviation, 1e-02):
+            print 'Error: standard-deviation value mismatch'
             print {'i': i, 'v1': v1, 'v2': v2, 'v3': v3, 'vdev': vdev, 'stdDeviation': stdDeviation}
             print ''
             print 'Rounded:'
@@ -131,7 +142,7 @@ def round_to_n(x, n):
         print n
         sys.exit(1)
 
-def isclose(a, b, rel_tol=1e-02, abs_tol=0.0):
+def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):
     return abs(a - b) <= max(rel_tol * max(abs(a), abs(b)), abs_tol)
 
 
