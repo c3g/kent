@@ -38,6 +38,7 @@
  *  2.1.0 - allow merging single file
  *  2.2.0 - add -deviation option
  *  2.2.1 - fix total summary
+ *  2.2.2 - bug fixes
  */
 
 /* A range of bigWig file */
@@ -87,7 +88,7 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 2.2.1 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 2.2.2 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
@@ -992,7 +993,7 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
       continue;
     }
 
-    int size = clPosition ? (clPosition->end - clPosition->start) : chrom->size;
+    int size = clPosition ? (clPosition->isFullChrom ? chrom->size : clPosition->end - clPosition->start) : chrom->size;
 
     /* Allocate memory and reset buffers to 0 */
     struct lm *lm = lmInit(0);
@@ -1049,7 +1050,9 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
             }
             else if (n == 2) {
               float mean = (mergeBuf[i] + val) / 2.0f;
-              varianceBuf[i] = powf(val - mean, 2) + powf(mergeBuf[i] - mean, 2);
+              float variance = powf(val - mean, 2) + powf(mergeBuf[i] - mean, 2);
+
+              varianceBuf[i] = variance;
               meanBuf[i] = mean;
             }
             else if (n > 2) {
@@ -1089,7 +1092,7 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
       int sameCount;
       for (int i = 0; i < chrom->size; i += sameCount)
       {
-        sameCount = getSequenceCount(mergeBuf + i, chrom->size - i);
+        sameCount = getSequenceCount(varianceBuf + i, chrom->size - i);
         float val = sqrtf(varianceBuf[i]);
         if (val != 0.0f) {
           deviationItems[c][index++] = (SectionItem) { i, i + sameCount, val };
@@ -1115,13 +1118,10 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
 
   itemsToBigWig(usageList, chromItems, outFile);
 
-  verbose(1, "\nWriting deviation...\n");
 
   if (clDeviation) {
-    /* for (int i = 0; i < deviationList->itemCount; i ++) {
-     *   SectionItem item = deviationItems[0][i];
-     *   printSectionItem(&item);
-     * } */
+    verbose(1, "\nWriting deviation...\n");
+
     itemsToBigWig(deviationList, deviationItems, clDeviation);
   }
 }
