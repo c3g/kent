@@ -39,6 +39,7 @@
  *  2.2.0 - add -deviation option
  *  2.2.1 - fix total summary
  *  2.2.2 - bug fixes
+ *  2.3.0 - add -deviationDefault option
  */
 
 /* A range of bigWig file */
@@ -88,7 +89,7 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 2.2.2 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 2.3.0 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
@@ -96,20 +97,27 @@ void usage()
       "Options:\n"
       "   -position=chr1:0-100   - Range to merge (default: none)\n"
       "   -range=0-1000          - Range of output values (default: none)\n"
-      "   -threshold=0.N         - Don't output values at or below this threshold. (default: 0.0)\n"
+      "   -threshold=0.0         - Don't output values at or below this threshold. (default: 0.0)\n"
       "   -normalize             - Use values weighted according to each file maximum (default: false)\n"
       "   -compress              - Compress output bigwig (default: false)\n"
-      "   -deviation=std-dev.bw  - Path to output standard deviation file (default: none)\n"
+      "   -deviation=std-dev.bw  - Path to output standard-deviation file (default: none)\n"
+      "   -deviationDefault=0.0  - When calculating standard-deviation, assign this value for tracks\n"
+      "                            that have no value at some position. Should be a neutral element.\n"
+      "                            The minimum value of the -range option would be a good value, otherwise\n"
+      "                            \"0\" could be correct.\n"
+      "                            (default: none, track not used in std-dev. calculation at unkown positions)\n"
       );
   exit(0);
 }
 
 static Range *clPosition = NULL;
-static float clThreshold = 0.0;
+static float clThreshold = 0.0f;
 static boolean clNormalize = FALSE;
 static boolean clCompress = FALSE;
 static NumericalRange *clRange = NULL;
 static char *clDeviation = NULL;
+static char *clDeviationDefault = NULL;
+static float clDeviationDefaultValue = 0.0f;
 
 
 static struct optionSpec options[] = {
@@ -119,6 +127,7 @@ static struct optionSpec options[] = {
   {"normalize", OPTION_BOOLEAN},
   {"compress", OPTION_BOOLEAN},
   {"deviation", OPTION_STRING},
+  {"deviationDefault", OPTION_STRING},
   {NULL, 0},
 };
 
@@ -283,6 +292,29 @@ int getSequenceCount(float *pt, int size)
     return sameCount + 1;
 
   return sameCount;
+}
+
+/**
+ * Return count of values that are equal for all three buffers.
+ */
+int getSequenceCountMulti(int *countBuf, float *varianceBuf, float *meanBuf, int size)
+{
+  int count = countBuf[0];
+  float variance = varianceBuf[0];
+  float mean = meanBuf[0];
+
+  int i;
+  for (i = 1; i < size; i++)
+  {
+    if (countBuf[i] != count)
+      break;
+    if (varianceBuf[i] != variance)
+      break;
+    if (meanBuf[i] != mean)
+      break;
+  }
+
+  return i;
 }
 
 /**
@@ -893,7 +925,6 @@ void itemsToBigWig(
   carefulClose(&f);
 }
 
-
 /**
  * Merge together multiple bigWigs into a single one
  */
@@ -932,7 +963,6 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
   int maxChromSize = clPosition ? findChrom(chromList, clPosition->chrom)->size : getMaxChromSize(chromList);
   int chromCount = slCount(chromList);
 
-
   verbose(1, "Got %d chromosomes from %d bigWigs (maxSize: %i)\n",
       slCount(chromList), slCount(inFiles), maxChromSize);
 
@@ -959,7 +989,7 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
   /* Buffers for standard deviation data, if applicable */
   float *varianceBuf = clDeviation ? needHugeMem(maxChromSize * sizeof(float)) : NULL;
   float *meanBuf = clDeviation ? needHugeMem(maxChromSize * sizeof(float)) : NULL;
-  float *countBuf = clDeviation ? needHugeMem(maxChromSize * sizeof(float)) : NULL;
+  int *countBuf = clDeviation ? needHugeMem(maxChromSize * sizeof(int)) : NULL;
 
 
   int c = 0;
@@ -1046,7 +1076,7 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
             int n = countBuf[i];
 
             if (n == 1) {
-              // skip
+              meanBuf[i] = val;
             }
             else if (n == 2) {
               float mean = (mergeBuf[i] + val) / 2.0f;
@@ -1088,17 +1118,79 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
 
     /* Store section item for deviation */
     if (clDeviation) {
-      int index = 0;
-      int sameCount;
-      for (int i = 0; i < chrom->size; i += sameCount)
-      {
-        sameCount = getSequenceCount(varianceBuf + i, chrom->size - i);
-        float val = sqrtf(varianceBuf[i]);
-        if (val != 0.0f) {
-          deviationItems[c][index++] = (SectionItem) { i, i + sameCount, val };
+
+      /*
+       * Case 1: no -deviationDefault, loop through the varianceBuf and output it
+       */
+      if (clDeviationDefault == NULL) {
+
+        int index = 0;
+        int sameCount;
+        for (int i = 0; i < chrom->size; i += sameCount)
+        {
+          sameCount = getSequenceCount(varianceBuf + i, chrom->size - i);
+
+          if (varianceBuf[i] != 0.0f) {
+            float val = sqrtf(varianceBuf[i]);
+
+            deviationItems[c][index++] = (SectionItem) { i, i + sameCount, val };
+          }
         }
+        deviation->itemCount = index;
+
       }
-      deviation->itemCount = index;
+      /*
+       * Case 2: -deviationDefault present: update varianceBuf
+       */
+      else {
+
+        int index = 0;
+        int sameCount;
+        for (int i = 0; i < chrom->size; i += sameCount)
+        {
+          sameCount = getSequenceCountMulti(countBuf + i, varianceBuf + i, meanBuf + i, chrom->size - i);
+
+          /*
+           * When a -deviationDefault is specified, we use that value for all
+           * tracks that didn't have a value at that position.
+           */
+          float val = clDeviationDefaultValue;
+          int n = countBuf[i];
+
+          while (n < inCount) {
+            n += 1;
+
+            if (n == 1) {
+              /* meanBuf[i] = val; // unnecessary, we won't be reading it again */
+              /* We need to mutate mergeBuf in case there was no previous value */
+              mergeBuf[i] = val;
+            }
+            else if (n == 2) {
+              float mean = (mergeBuf[i] + val) / 2.0f;
+              float variance = powf(val - mean, 2) + powf(mergeBuf[i] - mean, 2);
+
+              varianceBuf[i] = variance;
+              meanBuf[i] = mean;
+            }
+            else if (n > 2) {
+              float oldMean = meanBuf[i];
+              float newMean = ((oldMean * (n - 1)) + val) / n;
+
+              float oldVariance = varianceBuf[i];
+              float newVariance = ((n - 2) * oldVariance + (val - newMean) * (val - oldMean)) / (n - 1);
+
+              varianceBuf[i] = newVariance;
+              meanBuf[i] = newMean;
+            }
+          }
+
+          if (varianceBuf[i] != 0.0f) {
+            deviationItems[c][index++] = (SectionItem) { i, i + sameCount, sqrtf(varianceBuf[i]) };
+          }
+        }
+        deviation->itemCount = index;
+      }
+
     }
 
     lmCleanup(&lm);
@@ -1137,33 +1229,45 @@ int main(int argc, char *argv[])
   char *position = optionVal("position", NULL);
   char *range = optionVal("range", NULL);
   clDeviation = optionVal("deviation", NULL);
+  clDeviationDefault = optionVal("deviationDefault", NULL);
 
   if (position != NULL) {
     clPosition = parseChromRange(position);
-
     if (clPosition == NULL)
       errAbort("Error: Invalid value for argument -position (format: chrom:start-end)");
   }
 
   if (range != NULL) {
     clRange = parseNumericalRange(range);
-
     if (clRange == NULL)
       errAbort("Error: Invalid value for argument -range (format: start-end)");
   }
 
+  if (clDeviationDefault != NULL) {
+    clDeviationDefaultValue = atof(clDeviationDefault);
+    if (isnan(clDeviationDefaultValue))
+      errAbort("Error: Invalid value for argument -deviationDefault (format: 0.0 or \"min\")");
+    if (clRange != NULL && (clDeviationDefaultValue < clRange->start || clDeviationDefaultValue > clRange->end))
+      errAbort("Error: Invalid value for argument -deviationDefault: value should be in the -range specified");
+  }
+
   verbose(2, "Options:\n");
-  verbose(2, "\t-threshold: %s\n", clThreshold ? "true" : "false");
-  verbose(2, "\t-normalize: %s\n", clNormalize ? "true" : "false");
-  verbose(2, "\t-compress:  %s\n", clCompress ? "true" : "false");
+  verbose(2, "\t-threshold:        %s\n", clThreshold ? "true" : "false");
+  verbose(2, "\t-normalize:        %s\n", clNormalize ? "true" : "false");
+  verbose(2, "\t-compress:         %s\n", clCompress ? "true" : "false");
   if (clPosition != NULL)
-    verbose(2, "\t-position: %s:%i-%i\n", clPosition->chrom, clPosition->start, clPosition->end);
+    verbose(2, "\t-position:         %s:%i-%i\n", clPosition->chrom, clPosition->start, clPosition->end);
   else
-    verbose(2, "\t-position: (null)\n");
+    verbose(2, "\t-position:         (null)\n");
   if (clRange != NULL)
-    verbose(2, "\t-range: %i-%i\n", clRange->start, clRange->end);
+    verbose(2, "\t-range:            %i-%i\n", clRange->start, clRange->end);
   else
-    verbose(2, "\t-range: (null)\n");
+    verbose(2, "\t-range:            (null)\n");
+  verbose(2, "\t-deviation:        %s\n", clDeviation);
+  if (clDeviationDefault != NULL)
+    verbose(2, "\t-deviationDefault: %f (%s)\n", clDeviationDefaultValue, clDeviationDefault);
+  else
+    verbose(2, "\t-deviationDefault: (null)\n");
   verbose(2, "\n\n");
 
   int minArgs = 3;
