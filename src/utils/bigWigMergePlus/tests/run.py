@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 #
 # Copyright © 2018 rgregoir <rgregoir@laurier>
@@ -9,6 +9,7 @@ import math
 import os
 import os.path
 import pyBigWig
+from sty import fg, bg, ef, rs
 import sys
 from subprocess import call
 
@@ -33,8 +34,15 @@ executable = os.path.normpath(os.path.join(dirname, '../bigWigMergePlus'))
 
 
 def main():
-    test_deviation_without_default()
-    test_deviation_with_default()
+    tests = [
+        test_deviation_with_default,
+        test_deviation_without_default,
+    ]
+
+    print('')
+    for test in tests:
+        print_title('Running', test.__name__)
+        test()
 
 
 #########
@@ -51,7 +59,7 @@ def test_deviation_without_default():
     ] + inputFiles + [
         outputFile
     ]
-    print '\nRunning: \x1b[1m%s\x1b[0m\n' % ' '.join(command)
+    print('\nCommand: \x1b[1m%s\x1b[0m\n' % ' '.join(command))
     call(command)
 
     tracks = [pyBigWig.open(f) for f in inputFiles]
@@ -61,14 +69,14 @@ def test_deviation_without_default():
 
     summaries = [t.header() for t in tracks]
 
-    print ''
-    print 'Checking standard-deviation on position chr1:%d-%d' % tuple(outputPosition)
-    print 'outputRange = [%d, %d]' % tuple(outputRange)
-    print '%d tracks' % len(tracks)
-    #  print 't1: minVal = %d, maxVal = %d' % (s1['minVal'], s1['maxVal'])
-    #  print 't2: minVal = %d, maxVal = %d' % (s2['minVal'], s2['maxVal'])
-    #  print 't3: minVal = %d, maxVal = %d' % (s3['minVal'], s3['maxVal'])
-    print ''
+    print('')
+    print('Checking standard-deviation on position chr1:%d-%d' % tuple(outputPosition))
+    print('outputRange = [%d, %d]' % tuple(outputRange))
+    print('%d tracks' % len(tracks))
+    #  print('t1: minVal = %d, maxVal = %d' % (s1['minVal'], s1['maxVal']))
+    #  print('t2: minVal = %d, maxVal = %d' % (s2['minVal'], s2['maxVal']))
+    #  print('t3: minVal = %d, maxVal = %d' % (s3['minVal'], s3['maxVal']))
+    print('')
 
     for i in range(outputPosition[1]):
         all_values = [get_value_transformed(tracks[n], summaries[n], i) for n in range(len(tracks))]
@@ -85,8 +93,8 @@ def test_deviation_without_default():
         if len(values) <= 1:
             if vdev == 0:
                 continue
-            print 'Error: vdev should be 0'
-            print {'i': i, 'vdev': vdev, 'all_values': all_values}
+            print('Error: vdev should be 0')
+            print({'i': i, 'vdev': vdev, 'all_values': all_values})
             sys.exit(1)
 
         n = len(values)
@@ -95,23 +103,30 @@ def test_deviation_without_default():
             sum(map(lambda x: math.pow(x - mean, 2), values)) / (n - 1)
         )
 
-        if not isclose(sum(values), vout, 1e-02):
-            print 'Error: merge value mismatch'
-            print {'i': i, 'all_values': all_values}
-            print 'actual:   %.16f' % vout
-            print 'expected: %.16f' % sum(values)
+        merged = sum([v / len(inputFiles) for v in values])
+
+        if not isclose(merged, vout, 1e-02):
+            print_error_message('merge value mismatch')
+            print({'i': i, 'all_values': all_values})
+            print('')
+            print('actual:   %.16f' % vout)
+            print('expected: %.16f' % merged)
+            print('')
             sys.exit(1)
 
-        #  print {'i': i, 'v1': v1, 'v2': v2, 'v3': v3, 'vdev': vdev, 'stdDeviation': stdDeviation}
-        #  print '%d: %f %f' % (i, round_to_n(vdev, 3), round_to_n(stdDeviation, 3))
+        #  print({'i': i, 'v1': v1, 'v2': v2, 'v3': v3, 'vdev': vdev, 'stdDeviation': stdDeviation})
+        #  print('%d: %f %f' % (i, round_to_n(vdev, 3), round_to_n(stdDeviation, 3)))
         if not isclose(vdev, stdDeviation, 1e-01):
-            print 'Error: standard-deviation value mismatch'
-            print {'i': i, 'all_values': all_values, 'vdev': vdev, 'stdDeviation': stdDeviation}
-            print 'actual:   %.16f' % vdev
-            print 'expected: %.16f' % stdDeviation
-            print ''
-            print 'Rounded:'
-            print {'vdev': round_to_n(vdev, 4), 'stdDeviation': round_to_n(stdDeviation, 4)}
+            print_error_message('standard-deviation value mismatch')
+            print({'i': i, 'vdev': vdev, 'stdDeviation': stdDeviation})
+            print({'all_values': all_values})
+            print({'raw_values': raw_values})
+            print({'____values': values})
+
+            print('')
+            print('actual:   %.4f' % round_to_n(vdev, 4))
+            print('expected: %.4f' % round_to_n(stdDeviation, 4))
+            print('')
             sys.exit(1)
 
 def test_deviation_with_default():
@@ -125,7 +140,7 @@ def test_deviation_with_default():
     ] + inputFiles + [
         outputFile
     ]
-    print '\nRunning: \x1b[1m%s\x1b[0m\n' % ' '.join(command)
+    print('\nCommand: \x1b[1m%s\x1b[0m\n' % ' '.join(command))
     call(command)
 
     tracks = [pyBigWig.open(f) for f in inputFiles]
@@ -135,16 +150,17 @@ def test_deviation_with_default():
 
     summaries = [t.header() for t in tracks]
 
-    print ''
-    print 'Checking standard-deviation on position chr1:%d-%d' % tuple(outputPosition)
-    print 'outputRange = [%d, %d]' % tuple(outputRange)
-    print '%d tracks' % len(tracks)
-    #  print 't1: minVal = %d, maxVal = %d' % (s1['minVal'], s1['maxVal'])
-    #  print 't2: minVal = %d, maxVal = %d' % (s2['minVal'], s2['maxVal'])
-    #  print 't3: minVal = %d, maxVal = %d' % (s3['minVal'], s3['maxVal'])
-    print ''
+    print('')
+    print('Checking standard-deviation on position chr1:%d-%d' % tuple(outputPosition))
+    print('outputRange = [%d, %d]' % tuple(outputRange))
+    print('%d tracks' % len(tracks))
+    #  print('t1: minVal = %d, maxVal = %d' % (s1['minVal'], s1['maxVal']))
+    #  print('t2: minVal = %d, maxVal = %d' % (s2['minVal'], s2['maxVal']))
+    #  print('t3: minVal = %d, maxVal = %d' % (s3['minVal'], s3['maxVal']))
+    print('')
 
     for i in range(outputPosition[1]):
+        raw_values = [get_value_at(tracks[n], i) for n in range(len(tracks))]
         all_values = [get_value_transformed(tracks[n], summaries[n], i) for n in range(len(tracks))]
         vdev = get_value_at(dev, i)
         vout = get_value_at(out, i)
@@ -159,8 +175,8 @@ def test_deviation_with_default():
         if len(values) <= 1:
             if vdev == 0:
                 continue
-            print 'Error: vdev should be 0'
-            print {'i': i, 'vdev': vdev, 'all_values': all_values}
+            print('Error: vdev should be 0')
+            print({'i': i, 'vdev': vdev, 'all_values': all_values})
             sys.exit(1)
 
         n = len(values)
@@ -169,29 +185,45 @@ def test_deviation_with_default():
             sum(map(lambda x: math.pow(x - mean, 2), values)) / (n - 1)
         )
 
-        if not isclose(sum(values), vout, 1e-02):
-            print 'Error: merge value mismatch'
-            print {'i': i, 'all_values': all_values}
-            print 'actual:   %.16f' % vout
-            print 'expected: %.16f' % sum(values)
+        merged = sum([v / len(inputFiles) for v in values])
+
+        if not isclose(merged, vout, 1e-02):
+            print_error_message('merge value mismatch')
+            print({'i': i})
+            print({'raw_values': raw_values})
+            print({'all_values': all_values})
+            print({'____values': values})
+            print('')
+            print('actual:   %.16f' % vout)
+            print('expected: %.16f' % merged)
+            print('')
             sys.exit(1)
 
-        #  print {'i': i, 'v1': v1, 'v2': v2, 'v3': v3, 'vdev': vdev, 'stdDeviation': stdDeviation}
-        #  print '%d: %f %f' % (i, round_to_n(vdev, 3), round_to_n(stdDeviation, 3))
+        #  print({'i': i, 'v1': v1, 'v2': v2, 'v3': v3, 'vdev': vdev, 'stdDeviation': stdDeviation})
+        #  print('%d: %f %f' % (i, round_to_n(vdev, 3), round_to_n(stdDeviation, 3)))
         if not isclose(vdev, stdDeviation, 1e-01):
-            print 'Error: standard-deviation value mismatch'
-            print {'i': i, 'all_values': all_values, 'values': values, 'vdev': vdev, 'stdDeviation': stdDeviation}
-            print 'actual:   %.16f' % vdev
-            print 'expected: %.16f' % stdDeviation
-            print ''
-            print 'Rounded:'
-            print {'vdev': round_to_n(vdev, 4), 'stdDeviation': round_to_n(stdDeviation, 4)}
+            print_error_message('standard-deviation value mismatch')
+            print({'i': i, 'vdev': vdev, 'stdDeviation': stdDeviation})
+            print({'all_values': all_values})
+            print({'raw_values': raw_values})
+            print({'____values': values})
+
+            print('')
+            print('actual:   %.4f' % round_to_n(vdev, 4))
+            print('expected: %.4f' % round_to_n(stdDeviation, 4))
+            print('')
             sys.exit(1)
 
 
 ###########
 # Helpers #
 ###########
+
+def print_title(title, text=''):
+    print(fg.black + bg.white + ef.bold + ' ' + title + ' ' + rs.all + ef.bold + ' ' + text + rs.all)
+
+def print_error_message(message):
+    print(fg.white + bg.red + ef.bold + ' Error ' + rs.all + ef.bold + ' ' + message + rs.all)
 
 def get_value_at(track, position):
     val = track.values(outputChrom, position, position + 1)[0]
@@ -202,8 +234,7 @@ def get_value_transformed(track, summary, position):
     if math.isnan(val):
         return val
     val = \
-        ((((val - summary['minVal']) / (summary['maxVal'] - summary['minVal'])) * (outputRange[1] - outputRange[0])) + outputRange[0]) \
-        / len(inputFiles)
+        ((((val - summary['minVal']) / (summary['maxVal'] - summary['minVal'])) * (outputRange[1] - outputRange[0])) + outputRange[0])
     return val
 
 def round_to_n(x, n):
@@ -212,9 +243,9 @@ def round_to_n(x, n):
     try:
         return round(x, -int(math.floor(math.log10(x))) + (n - 1))
     except Exception as e:
-        print e
-        print x
-        print n
+        print(e)
+        print(x)
+        print(n)
         sys.exit(1)
 
 def isclose(a, b, rel_tol=1e-09, abs_tol=0.0):

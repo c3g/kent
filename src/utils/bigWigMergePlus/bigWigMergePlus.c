@@ -40,6 +40,7 @@
  *  2.2.1 - fix total summary
  *  2.2.2 - bug fixes
  *  2.3.0 - add -deviationDefault option
+ *  2.3.1 - bug fix
  */
 
 /* A range of bigWig file */
@@ -89,7 +90,7 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 2.3.0 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 2.3.1 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
@@ -1062,8 +1063,8 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
         if (clNormalize)
           val *= factors[f];
 
-        if (clRange)
-          val = ((((val - summary.minVal) / (summary.maxVal - summary.minVal)) * (clRange->end - clRange->start)) + clRange->start) / (double)inCount;
+        if (clRange != NULL)
+          val = ((((val - summary.minVal) / (summary.maxVal - summary.minVal)) * (clRange->end - clRange->start)) + clRange->start);
 
         for (; i < iv->end; i++)
         {
@@ -1105,10 +1106,15 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
     /* Store each range of contiguous values as a section item */
     int index = 0;
     int sameCount;
+    float countInverse = 1.0 / (double)inCount;
     for (int i = 0; i < chrom->size; i += sameCount)
     {
       sameCount = getSequenceCount(mergeBuf + i, chrom->size - i);
       float val = mergeBuf[i];
+
+      if (clRange != NULL)
+        val *= countInverse;
+
       if (val > clThreshold) {
         SectionItem item = { i, i + sameCount, val };
         chromItems[c][index++] = item;
@@ -1206,13 +1212,13 @@ void bigWigMergePlus(int inCount, char *inFilenames[], char *outFile)
    * Finally, write the output data to file
    */
 
-  verbose(1, "\nWriting output...\n");
+  verbose(1, "Writing output...\n");
 
   itemsToBigWig(usageList, chromItems, outFile);
 
 
   if (clDeviation) {
-    verbose(1, "\nWriting deviation...\n");
+    verbose(1, "Writing deviation...\n");
 
     itemsToBigWig(deviationList, deviationItems, clDeviation);
   }
