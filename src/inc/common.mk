@@ -1,6 +1,6 @@
 
-# set CC to clang
-CC = clang
+# set CC to gcc if not set
+CC ?= gcc
 
 # to build on sundance: CC=gcc -mcpu=v9 -m64
 ifeq (${COPT},)
