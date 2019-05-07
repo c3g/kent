@@ -16,6 +16,7 @@ update:
 topLibs:
 	@./checkUmask.sh
 	@MACHTYPE=${MACHTYPE} ./machTest.sh
+	cd lib/libdeflate && ${MAKE}
 	cd lib && ${MAKE}
 	cd jkOwnLib && ${MAKE}
 	cd parasol/lib && ${MAKE}
