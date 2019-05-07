@@ -4,7 +4,7 @@ CC = clang
 
 # to build on sundance: CC=gcc -mcpu=v9 -m64
 ifeq (${COPT},)
-    COPT=-O -g
+    COPT=-Ofast -g
 endif
 ifeq (${CFLAGS},)
     CFLAGS=
@@ -99,141 +99,141 @@ ifeq (${MLIB},)
 endif
 
 # autodetect where png is installed
-ifeq (${PNGLIB},)
-  ifneq ($(wildcard /usr/lib64/libpng.a),)
-      PNGLIB=/usr/lib64/libpng.a
-  endif
-endif
-ifeq (${PNGLIB},)
-  ifneq ($(wildcard /usr/lib/libpng.a),)
-      PNGLIB=/usr/lib/libpng.a
-  endif
-endif
-ifeq (${PNGLIB},)
-  ifneq ($(wildcard /opt/local/lib/libpng.a),)
-      PNGLIB=/opt/local/lib/libpng.a
-  endif
-endif
-ifeq (${PNGLIB},)
-  ifneq ($(wildcard /usr/local/lib/libpng.a),)
-      PNGLIB=/usr/local/lib/libpng.a
-  endif
-endif
-ifeq (${PNGLIB},)
-      PNGLIB := $(shell libpng-config --ldflags  || true)
-endif
-ifeq (${PNGLIB},)
-  PNGLIB=-lpng
-endif
-ifeq (${PNGINCL},)
-  ifneq ($(wildcard /opt/local/include/png.h),)
-      PNGINCL=-I/opt/local/include
-  else
-      PNGINCL := $(shell libpng-config --I_opts  || true)
-#       $(info using libpng-config to set PNGINCL: ${PNGINCL})
-  endif
-endif
+# ifeq (${PNGLIB},)
+  # ifneq ($(wildcard /usr/lib64/libpng.a),)
+      # PNGLIB=/usr/lib64/libpng.a
+  # endif
+# endif
+# ifeq (${PNGLIB},)
+  # ifneq ($(wildcard /usr/lib/libpng.a),)
+      # PNGLIB=/usr/lib/libpng.a
+  # endif
+# endif
+# ifeq (${PNGLIB},)
+  # ifneq ($(wildcard /opt/local/lib/libpng.a),)
+      # PNGLIB=/opt/local/lib/libpng.a
+  # endif
+# endif
+# ifeq (${PNGLIB},)
+  # ifneq ($(wildcard /usr/local/lib/libpng.a),)
+      # PNGLIB=/usr/local/lib/libpng.a
+  # endif
+# endif
+# ifeq (${PNGLIB},)
+      # PNGLIB := $(shell libpng-config --ldflags  || true)
+# endif
+# ifeq (${PNGLIB},)
+  # PNGLIB=-lpng
+# endif
+# ifeq (${PNGINCL},)
+  # ifneq ($(wildcard /opt/local/include/png.h),)
+      # PNGINCL=-I/opt/local/include
+  # else
+      # PNGINCL := $(shell libpng-config --I_opts  || true)
+# #       $(info using libpng-config to set PNGINCL: ${PNGINCL})
+  # endif
+# endif
 
 # autodetect where mysql includes and libraries are installed
 # do not need to do this during 'clean' target (this is very slow for 'clean')
-ifneq ($(MAKECMDGOALS),clean)
-  # on hgwdev, use the static library.
-  ifeq (${IS_HGWDEV},yes)
-    MYSQLINC=/usr/include/mysql
-    MYSQLLIBS=/usr/lib64/libmysqlclient.a /usr/lib64/libssl.a /usr/lib64/libcrypto.a -lkrb5 -ldl -lz
-  endif
-  # this does *not* work on Mac OSX with the dynamic libraries
-  ifneq ($(UNAME_S),Darwin)
-    ifeq (${MYSQLLIBS},)
-      MYSQLLIBS := $(shell mysql_config --libs || true)
-#        $(info using mysql_config to set MYSQLLIBS: ${MYSQLLIBS})
-    endif
-  endif
+# ifneq ($(MAKECMDGOALS),clean)
+  # # on hgwdev, use the static library.
+  # ifeq (${IS_HGWDEV},yes)
+    # MYSQLINC=/usr/include/mysql
+    # MYSQLLIBS=/usr/lib64/libmysqlclient.a /usr/lib64/libssl.a /usr/lib64/libcrypto.a -lkrb5 -ldl -lz
+  # endif
+  # # this does *not* work on Mac OSX with the dynamic libraries
+  # ifneq ($(UNAME_S),Darwin)
+    # ifeq (${MYSQLLIBS},)
+      # MYSQLLIBS := $(shell mysql_config --libs || true)
+# #        $(info using mysql_config to set MYSQLLIBS: ${MYSQLLIBS})
+    # endif
+  # endif
 
-  ifeq (${MYSQLINC},)
-    MYSQLINC := $(shell mysql_config --include | sed -e 's/-I//' || true)
-#        $(info using mysql_config to set MYSQLINC: ${MYSQLINC})
-  endif
-  ifeq (${MYSQLINC},)
-    ifneq ($(wildcard /usr/local/mysql/include/mysql.h),)
-	  MYSQLINC=/usr/local/mysql/include
-    endif
-  endif
-  ifeq (${MYSQLINC},)
-    ifneq ($(wildcard /usr/include/mysql/mysql.h),)
-	  MYSQLINC=/usr/include/mysql
-    endif
-  endif
-  ifeq (${MYSQLINC},)
-    ifneq ($(wildcard /opt/local/include/mysql57/mysql/mysql.h),)
-	  MYSQLINC=/opt/local/include/mysql57/mysql
-    endif
-  endif
-  ifeq (${MYSQLINC},)
-    ifneq ($(wildcard /opt/local/include/mysql55/mysql/mysql.h),)
-	  MYSQLINC=/opt/local/include/mysql55/mysql
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /opt/local/lib/mysql57/mysql/libmysqlclient.a),)
-	  MYSQLLIBS=/opt/local/lib/mysql57/mysql/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /opt/local/lib/mysql55/mysql/libmysqlclient.a),)
-	  MYSQLLIBS=/opt/local/lib/mysql55/mysql/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /usr/lib64/mysql/libmysqlclient.a),)
-	  MYSQLLIBS=/usr/lib64/mysql/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /usr/local/mysql/lib/libmysqlclient.a),)
-	  MYSQLLIBS=/usr/local/mysql/lib/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /usr/local/mysql/lib/libmysqlclient.a),)
-	  MYSQLLIBS=/usr/local/mysql/lib/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /usr/lib64/mysql/libmysqlclient.so),)
-	  MYSQLLIBS=/usr/lib64/mysql/libmysqlclient.so
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /usr/lib/libmysqlclient.a),)
-	  MYSQLLIBS=/usr/lib/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /opt/local/lib/mysql55/mysql/libmysqlclient.a),)
-	  MYSQLLIBS=/opt/local/lib/mysql55/mysql/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /usr/local/Cellar/mysql/5.6.19/lib/libmysqlclient.a),)
-	  MYSQLLIBS=/usr/local/Cellar/mysql/5.6.19/lib/libmysqlclient.a
-    endif
-  endif
-  ifeq (${MYSQLLIBS},)
-    ifneq ($(wildcard /usr/local/Cellar/mysql/5.6.16/lib/libmysqlclient.a),)
-	  MYSQLLIBS=/usr/local/Cellar/mysql/5.6.16/lib/libmysqlclient.a
-    endif
-  endif
-  ifeq ($(findstring src/hg/,${CURDIR}),src/hg/)
-    ifeq (${MYSQLINC},)
-        $(error can not find installed mysql development system)
-    endif
-  endif
-    # last resort, hoping the compiler can find it in standard locations
-  ifeq (${MYSQLLIBS},)
-      MYSQLLIBS="-lmysqlclient"
-  endif
-endif
+  # ifeq (${MYSQLINC},)
+    # MYSQLINC := $(shell mysql_config --include | sed -e 's/-I//' || true)
+# #        $(info using mysql_config to set MYSQLINC: ${MYSQLINC})
+  # endif
+  # ifeq (${MYSQLINC},)
+    # ifneq ($(wildcard /usr/local/mysql/include/mysql.h),)
+	  # MYSQLINC=/usr/local/mysql/include
+    # endif
+  # endif
+  # ifeq (${MYSQLINC},)
+    # ifneq ($(wildcard /usr/include/mysql/mysql.h),)
+	  # MYSQLINC=/usr/include/mysql
+    # endif
+  # endif
+  # ifeq (${MYSQLINC},)
+    # ifneq ($(wildcard /opt/local/include/mysql57/mysql/mysql.h),)
+	  # MYSQLINC=/opt/local/include/mysql57/mysql
+    # endif
+  # endif
+  # ifeq (${MYSQLINC},)
+    # ifneq ($(wildcard /opt/local/include/mysql55/mysql/mysql.h),)
+	  # MYSQLINC=/opt/local/include/mysql55/mysql
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /opt/local/lib/mysql57/mysql/libmysqlclient.a),)
+	  # MYSQLLIBS=/opt/local/lib/mysql57/mysql/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /opt/local/lib/mysql55/mysql/libmysqlclient.a),)
+	  # MYSQLLIBS=/opt/local/lib/mysql55/mysql/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /usr/lib64/mysql/libmysqlclient.a),)
+	  # MYSQLLIBS=/usr/lib64/mysql/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /usr/local/mysql/lib/libmysqlclient.a),)
+	  # MYSQLLIBS=/usr/local/mysql/lib/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /usr/local/mysql/lib/libmysqlclient.a),)
+	  # MYSQLLIBS=/usr/local/mysql/lib/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /usr/lib64/mysql/libmysqlclient.so),)
+	  # MYSQLLIBS=/usr/lib64/mysql/libmysqlclient.so
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /usr/lib/libmysqlclient.a),)
+	  # MYSQLLIBS=/usr/lib/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /opt/local/lib/mysql55/mysql/libmysqlclient.a),)
+	  # MYSQLLIBS=/opt/local/lib/mysql55/mysql/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /usr/local/Cellar/mysql/5.6.19/lib/libmysqlclient.a),)
+	  # MYSQLLIBS=/usr/local/Cellar/mysql/5.6.19/lib/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq (${MYSQLLIBS},)
+    # ifneq ($(wildcard /usr/local/Cellar/mysql/5.6.16/lib/libmysqlclient.a),)
+	  # MYSQLLIBS=/usr/local/Cellar/mysql/5.6.16/lib/libmysqlclient.a
+    # endif
+  # endif
+  # ifeq ($(findstring src/hg/,${CURDIR}),src/hg/)
+    # ifeq (${MYSQLINC},)
+        # $(error can not find installed mysql development system)
+    # endif
+  # endif
+    # # last resort, hoping the compiler can find it in standard locations
+  # ifeq (${MYSQLLIBS},)
+      # MYSQLLIBS="-lmysqlclient"
+  # endif
+# endif
 
 # $(info have MYSQLINC: ${MYSQLINC})
 # $(info have MYSQLLIBS: ${MYSQLLIBS})
