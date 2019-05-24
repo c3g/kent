@@ -41,6 +41,7 @@
  *  2.2.2 - bug fixes
  *  2.3.0 - add -deviationDefault option
  *  2.3.1 - bug fix
+ *  2.3.2 - bug fix
  */
 
 /* A range of bigWig file */
@@ -90,7 +91,7 @@ void usage()
 /* Explain usage and exit. */
 {
   printf(
-      "bigWigMergePlus 2.3.1 - Merge together multiple bigWigs into a single bigWig.\n"
+      "bigWigMergePlus 2.3.2 - Merge together multiple bigWigs into a single bigWig.\n"
       "\n"
       "Usage:\n"
       "   bigWigMergePlus in1.bw in2.bw .. inN.bw out.bw\n"
