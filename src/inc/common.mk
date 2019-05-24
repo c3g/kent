@@ -4,7 +4,11 @@ CC ?= gcc
 
 # to build on sundance: CC=gcc -mcpu=v9 -m64
 ifeq (${COPT},)
+  ifeq (${CC},clang)
     COPT=-Ofast -g
+  else
+    COPT=-O3 -g
+  endif
 endif
 ifeq (${CFLAGS},)
     CFLAGS=
