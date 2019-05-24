@@ -207,13 +207,17 @@ static int bbiChromInfoCmpStringsWithEmbeddedNumbers(const void *va, const void 
  */
 struct bbiChromInfo *getAllChroms(struct bbiFile *fileList)
 {
+  int nextId = 0;
   struct bbiFile *file;
   struct hash *hash = hashNew(0);
   struct bbiChromInfo *nameList = NULL;
 
   for (file = fileList; file != NULL; file = file->next)
   {
-    struct bbiChromInfo *info, *next, *infoList = bbiChromList(file);
+    struct bbiChromInfo *next,
+                        *newInfo,
+                        *info,
+                        *infoList = bbiChromList(file);
     for (info = infoList; info != NULL; info = next)
     {
       next = info->next;
@@ -228,8 +232,18 @@ struct bbiChromInfo *getAllChroms(struct bbiFile *fileList)
       }
       else
       {
-        hashAdd(hash, info->name, info);
-        slAddHead(&nameList, info);
+        /*
+         * We need to create new infos to make sure we have sequential ids, because
+         * different files may have different ids for the same name (and the same id
+         * for different names, which will cause an error.)
+         */
+        newInfo = malloc(sizeof(struct bbiChromInfo)); // leaked, freed on exit
+        newInfo->id = nextId++;
+        newInfo->name = info->name;
+        newInfo->size = info->size;
+
+        hashAdd(hash, newInfo->name, newInfo);
+        slAddHead(&nameList, newInfo);
       }
     }
   }
@@ -528,7 +542,7 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
 {
   struct bbiSummary *twiceReducedList = NULL;
   bits32 doubleReductionSize = initialReduction * zoomIncrement;
-  struct bbiChromUsage *usage = usageList;
+  struct bbiChromUsage *usage;
   struct bbiSummary oneSummary;
   struct bbiSummary *sum = NULL;
   struct bbiBoundsArray *boundsArray,
