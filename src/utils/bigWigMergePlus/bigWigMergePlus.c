@@ -549,8 +549,9 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
   struct bbiBoundsArray *boundsArray,
                         *boundsPt,
                         *boundsEnd;
-  boundsPt = AllocArray(boundsArray, initialReductionCount);
-  boundsEnd = boundsPt + initialReductionCount;
+  int boundsSize = initialReductionCount;
+  boundsPt = AllocArray(boundsArray, boundsSize);
+  boundsEnd = boundsPt + boundsSize;
 
   *retDataStart = ftell(f);
   writeOne(f, initialReductionCount);
@@ -637,6 +638,10 @@ static struct bbiSummary *itemsWriteReducedOnceReturnReducedTwice(
         sum->minVal = sum->maxVal = val;
         sum->sumData = sum->sumSquares = 0.0;
         sum->validCount = 0;
+
+        if (sum->end == usage->size) {
+          break;
+        }
       }
 
       /* Add to summary. */
